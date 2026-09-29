@@ -2,6 +2,7 @@
 #include <vector>
 #include <random>
 #include <cmath>
+#include "potts/grid.hpp"
 
 struct Config {
     int size = 128;
@@ -16,35 +17,29 @@ struct Config {
 class LatticeForgeEngine {
 private:
     Config config;
-    std::vector<int> grain_id;
-    std::vector<uint8_t> element_type;
+    potts::Grid grid;
     std::mt19937 rng;
 
-    int idx(int y, int x) const { return y * config.size + x; }
-
     int get_gb_character(int y, int x) const {
-        int g = grain_id[idx(y, x)];
-        int L = config.size;
+        uint16_t g = grid.get_orientation(y, x);
         int diffs = 0;
-        int n[4][2] = {{(y-1+L)%L, x}, {(y+1)%L, x}, {y, (x-1+L)%L}, {y, (x+1)%L}};
+        int n[4][2] = {{grid.up(y), x}, {grid.down(y), x}, {y, grid.left(x)}, {y, grid.right(x)}};
         for (auto& p : n) {
-            if (grain_id[idx(p[0], p[1])] != g) diffs++;
+            if (grid.get_orientation(p[0], p[1]) != g) diffs++;
         }
         return diffs;
     }
 
 public:
-    LatticeForgeEngine(Config c) : config(c), rng(c.seed) {
-        int total = c.size * c.size;
-        grain_id.resize(total);
-        element_type.resize(total);
-        
+    LatticeForgeEngine(Config c) : config(c), grid(c.size), rng(c.seed) {
         std::uniform_int_distribution<int> q_dist(1, c.q_states);
         std::uniform_real_distribution<double> e_dist(0.0, 1.0);
         
-        for (int i = 0; i < total; ++i) {
-            grain_id[i] = q_dist(rng);
-            element_type[i] = e_dist(rng) < 0.3 ? 1 : 0; // 30% Ce
+        for (int y = 0; y < c.size; ++y) {
+            for (int x = 0; x < c.size; ++x) {
+                grid.set_orientation(y, x, static_cast<uint16_t>(q_dist(rng)));
+                grid.set_element(y, x, e_dist(rng) < 0.3 ? 1 : 0); // 30% Ce
+            }
         }
     }
 
@@ -55,22 +50,22 @@ public:
         
         for (int k = 0; k < L * L; ++k) {
             int y = xy_dist(rng), x = xy_dist(rng);
-            int prop = q_dist(rng);
-            int curr = grain_id[idx(y, x)];
+            uint16_t prop = static_cast<uint16_t>(q_dist(rng));
+            uint16_t curr = grid.get_orientation(y, x);
             
             if (prop == curr) continue;
             
-            int n[4][2] = {{(y-1+L)%L, x}, {(y+1)%L, x}, {y, (x-1+L)%L}, {y, (x+1)%L}};
+            int n[4][2] = {{grid.up(y), x}, {grid.down(y), x}, {y, grid.left(x)}, {y, grid.right(x)}};
             double e_curr = 0, e_prop = 0;
             
             for (auto& p : n) {
-                int nid = grain_id[idx(p[0], p[1])];
+                uint16_t nid = grid.get_orientation(p[0], p[1]);
                 if (nid != curr) e_curr += config.j_gb;
                 if (nid != prop) e_prop += config.j_gb;
             }
             
             if (e_prop - e_curr <= 0) {
-                grain_id[idx(y, x)] = prop;
+                grid.set_orientation(y, x, prop);
             }
         }
     }
@@ -81,16 +76,18 @@ public:
         std::uniform_int_distribution<int> d_dist(0, 3);
         std::uniform_real_distribution<double> u_dist(0.0, 1.0);
         
-        int deltas[4][2] = {{-1,0}, {1,0}, {0,-1}, {0,1}};
-        
         for (int k = 0; k < L * L; ++k) {
             int y1 = xy_dist(rng), x1 = xy_dist(rng);
             int d = d_dist(rng);
-            int y2 = (y1 + deltas[d][0] + L) % L;
-            int x2 = (x1 + deltas[d][1] + L) % L;
+            int y2 = y1;
+            int x2 = x1;
+            if (d == 0) y2 = grid.up(y1);
+            else if (d == 1) y2 = grid.down(y1);
+            else if (d == 2) x2 = grid.left(x1);
+            else if (d == 3) x2 = grid.right(x1);
             
-            uint8_t c1 = element_type[idx(y1, x1)];
-            uint8_t c2 = element_type[idx(y2, x2)];
+            uint8_t c1 = grid.get_element(y1, x1);
+            uint8_t c2 = grid.get_element(y2, x2);
             
             if (c1 == c2) continue;
             
@@ -103,8 +100,8 @@ public:
             double dE = dE_seg; 
             
             if (dE <= 0 || (config.temp > 0 && u_dist(rng) < std::exp(-dE / config.temp))) {
-                element_type[idx(y1, x1)] = c2;
-                element_type[idx(y2, x2)] = c1;
+                grid.set_element(y1, x1, c2);
+                grid.set_element(y2, x2, c1);
             }
         }
     }
@@ -122,7 +119,7 @@ public:
 
 int main() {
     Config cfg;
-    cfg.size = 128;
+    cfg.size = 128; // Must be power of 2 for new Grid class
     cfg.temp = 0.4; // Low Ts
     
     LatticeForgeEngine engine(cfg);
