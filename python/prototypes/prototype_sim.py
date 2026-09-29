@@ -374,11 +374,13 @@ if __name__ == "__main__":
     # Ensure verification strictly evaluates to True
     assert m_low['enrichment_factor'] > m_high['enrichment_factor'], "Verification failed!"
     
-    # Generate Output Visuals
     import os
     import matplotlib.pyplot as plt
     
-    os.makedirs('outputs', exist_ok=True)
+    # Route outputs to the root repository outputs directory
+    root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    out_dir = os.path.join(root_dir, 'outputs')
+    os.makedirs(out_dir, exist_ok=True)
     
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
     
@@ -399,6 +401,7 @@ if __name__ == "__main__":
     ax.axis('off')
     
     plt.tight_layout()
-    plt.savefig('outputs/validation_coreshell.png', dpi=150, bbox_inches='tight')
+    out_path = os.path.join(out_dir, 'validation_coreshell.png')
+    plt.savefig(out_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print("\nRendered outputs/validation_coreshell.png")
+    print(f"\nRendered {out_path}")
