@@ -13,5 +13,7 @@ add_executable(lattice_forge
     src/grid.cpp 
     src/potts_cpu.cpp 
     src/kawasaki_cpu.cpp
+    src/cuda/potts_kernels.cu
+    src/cuda/cuda_manager.cu
 )
 target_include_directories(lattice_forge PRIVATE include)
