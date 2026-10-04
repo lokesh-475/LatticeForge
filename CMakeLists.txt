@@ -17,3 +17,15 @@ add_executable(lattice_forge
     src/cuda/cuda_manager.cu
 )
 target_include_directories(lattice_forge PRIVATE include)
+
+enable_testing()
+add_executable(test_parity 
+    tests/test_parity.cpp 
+    src/grid.cpp 
+    src/potts_cpu.cpp 
+    src/kawasaki_cpu.cpp
+    src/cuda/potts_kernels.cu
+    src/cuda/cuda_manager.cu
+)
+target_include_directories(test_parity PRIVATE include)
+add_test(NAME ParityTest COMMAND test_parity)
