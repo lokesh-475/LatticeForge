@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED True)
-set(CMAKE_CUDA_ARCHITECTURES 75 80 86 89 native)
+set(CMAKE_CUDA_ARCHITECTURES 75 80 86 89)
 
 add_executable(lattice_forge 
     src/main.cpp 
@@ -16,7 +16,7 @@ add_executable(lattice_forge
     src/cuda/potts_kernels.cu
     src/cuda/cuda_manager.cu
 )
-target_include_directories(lattice_forge PRIVATE include)
+target_include_directories(lattice_forge PRIVATE include ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 
 enable_testing()
 add_executable(test_parity 
@@ -27,5 +27,5 @@ add_executable(test_parity
     src/cuda/potts_kernels.cu
     src/cuda/cuda_manager.cu
 )
-target_include_directories(test_parity PRIVATE include)
+target_include_directories(test_parity PRIVATE include ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 add_test(NAME ParityTest COMMAND test_parity)
