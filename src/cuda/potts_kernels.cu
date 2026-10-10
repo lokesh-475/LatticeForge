@@ -15,6 +15,21 @@ void potts_checkerboard_kernel(
     double j_gb,
     int phase_parity
 ) {
+    __shared__ uint16_t tile[18][18];
+
+    // Load 18x18 tile into shared memory, including 1-cell halo
+    int tid = threadIdx.y * blockDim.x + threadIdx.x;
+    int blockSize = blockDim.x * blockDim.y;
+    for (int i = tid; i < 324; i += blockSize) {
+        int r = i / 18 - 1;
+        int c = i % 18 - 1;
+        int gx = (blockIdx.x * blockDim.x + c) & mask;
+        int gy = (blockIdx.y * blockDim.y + r) & mask;
+        tile[r + 1][c + 1] = d_orientations[gy * L + gx];
+    }
+
+    __syncthreads();
+
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -26,25 +41,21 @@ void potts_checkerboard_kernel(
     int idx = y * L + x;
     curandStatePhilox4_32_10_t local_state = d_states[idx];
 
-    uint16_t curr = d_orientations[idx];
+    int tx = threadIdx.x + 1;
+    int ty = threadIdx.y + 1;
+    uint16_t curr = tile[ty][tx];
     
     // Generate a proposed state uniformly in [1, q_states]
     uint16_t prop = (curand(&local_state) % q_states) + 1;
 
     if (prop != curr) {
-        // Branchless periodic boundary via bitwise mask
-        int up = ((y - 1) & mask) * L + x;
-        int down = ((y + 1) & mask) * L + x;
-        int left = y * L + ((x - 1) & mask);
-        int right = y * L + ((x + 1) & mask);
-
         double e_curr = 0.0;
         double e_prop = 0.0;
 
-        uint16_t n_up = d_orientations[up];
-        uint16_t n_down = d_orientations[down];
-        uint16_t n_left = d_orientations[left];
-        uint16_t n_right = d_orientations[right];
+        uint16_t n_up = tile[ty - 1][tx];
+        uint16_t n_down = tile[ty + 1][tx];
+        uint16_t n_left = tile[ty][tx - 1];
+        uint16_t n_right = tile[ty][tx + 1];
 
         if (n_up != curr) e_curr += j_gb;
         if (n_down != curr) e_curr += j_gb;
