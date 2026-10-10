@@ -284,12 +284,47 @@ class LatticeForgePrototype:
         self.step_count += 1
         return {"flips": flips, "swaps": swaps}
 
+    def compute_total_energy(self) -> float:
+        """Computes the total Hamiltonian of the system."""
+        north = np.roll(self.grain_id, -1, axis=0)
+        south = np.roll(self.grain_id, 1, axis=0)
+        east = np.roll(self.grain_id, -1, axis=1)
+        west = np.roll(self.grain_id, 1, axis=1)
+        
+        gb_map = (
+            (self.grain_id != north).astype(np.int32)
+            + (self.grain_id != south).astype(np.int32)
+            + (self.grain_id != east).astype(np.int32)
+            + (self.grain_id != west).astype(np.int32)
+        )
+        
+        h_potts = (self.j_gb / 2.0) * np.sum(gb_map)
+        h_seg = -self.h_seg * np.sum(self.element_type * gb_map)
+        
+        h_chem = 0.0
+        if self.j_chem != 0.0:
+            c_north = np.roll(self.element_type, -1, axis=0)
+            c_south = np.roll(self.element_type, 1, axis=0)
+            c_east = np.roll(self.element_type, -1, axis=1)
+            c_west = np.roll(self.element_type, 1, axis=1)
+            
+            unlike_bonds = (
+                (self.element_type != c_north).astype(np.int32)
+                + (self.element_type != c_south).astype(np.int32)
+                + (self.element_type != c_east).astype(np.int32)
+                + (self.element_type != c_west).astype(np.int32)
+            )
+            h_chem = (self.j_chem / 2.0) * np.sum(unlike_bonds)
+            
+        return float(h_potts + h_seg + h_chem)
+
     def compute_metrics(self) -> Dict[str, float]:
         """
         Computes physical metrics:
             - gb_fraction: Fraction of lattice sites exhibiting boundary character
             - ce_at_gb_ratio: Fraction of total Ce atoms residing at grain boundaries
             - segregation_enrichment: Concentration of Ce at GB vs bulk interior
+            - total_energy: Total Hamiltonian of the system
         """
         L = self.size
         # Vectorized GB character computation
@@ -325,6 +360,7 @@ class LatticeForgePrototype:
             "c_gb": float(c_gb),
             "c_bulk": float(c_bulk),
             "enrichment_factor": float(enrichment),
+            "total_energy": self.compute_total_energy(),
         }
 
 
