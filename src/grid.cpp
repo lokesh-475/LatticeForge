@@ -16,7 +16,7 @@ static int get_shift(int x) {
     return shift;
 }
 
-Grid::Grid(int L) : L_(L) {
+Grid::Grid(int L, bool pinned) : L_(L), pinned_(pinned) {
     if (!is_power_of_two(L)) {
         throw std::invalid_argument("Grid size L must be a power of 2 for modulo-free bitwise boundary handling.");
     }
@@ -24,8 +24,8 @@ Grid::Grid(int L) : L_(L) {
     shift_ = get_shift(L);
     
     int total = L * L;
-    orientations_.resize(total, 0);
-    elements_.resize(total, 0);
+    orientations_ = HostBuffer<uint16_t>(total, pinned);
+    elements_ = HostBuffer<uint8_t>(total, pinned);
     neighbors_.resize(total);
 
     for (int y = 0; y < L; ++y) {

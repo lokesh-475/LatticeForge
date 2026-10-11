@@ -5,26 +5,37 @@
 namespace potts {
 namespace cuda {
 
-__global__ void curand_setup_kernel(curandStatePhilox4_32_10_t *state, unsigned long long seed, int L) {
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
+__global__ void curand_setup_kernel(curandStatePhilox4_32_10_t *state, unsigned long long seed, int total_sites) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_sites) return;
 
-    if (x >= L || y >= L) return;
-
-    int idx = y * L + x;
-    
-    // Initialize Philox states.
-    // Each thread gets the same seed, but a unique sequence number (idx),
-    // and offset 0 to ensure independent streams of random numbers.
+    // Initialize Philox states with contiguous 1D index mapping.
+    // Consecutive threads access consecutive memory addresses, ensuring coalesced global memory stores.
     curand_init(seed, idx, 0, &state[idx]);
 }
 
 void CudaManager::init_curand_states(curandStatePhilox4_32_10_t *d_states, int L, unsigned long long seed) {
-    dim3 threads(16, 16);
-    dim3 blocks((L + threads.x - 1) / threads.x, (L + threads.y - 1) / threads.y);
+    int total_sites = L * L;
+    int block_size = 256; // 8 warps for 128-byte warp coalescing
+    int num_blocks = (total_sites + block_size - 1) / block_size;
 
-    curand_setup_kernel<<<blocks, threads>>>(d_states, seed, L);
+    curand_setup_kernel<<<num_blocks, block_size>>>(d_states, seed, total_sites);
     cudaDeviceSynchronize();
+}
+
+void* CudaManager::allocate_pinned_host(size_t bytes, unsigned int flags) {
+    void* ptr = nullptr;
+    cudaError_t err = cudaHostAlloc(&ptr, bytes, flags);
+    if (err != cudaSuccess) {
+        throw std::runtime_error("cudaHostAlloc failed: " + std::string(cudaGetErrorString(err)));
+    }
+    return ptr;
+}
+
+void CudaManager::free_pinned_host(void* ptr) {
+    if (ptr) {
+        cudaFreeHost(ptr);
+    }
 }
 
 } // namespace cuda

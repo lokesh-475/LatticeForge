@@ -10,52 +10,47 @@ void potts_checkerboard_kernel(
     uint16_t* d_orientations,
     curandStatePhilox4_32_10_t* d_states,
     int L,
+    int shift,
     int mask,
     int q_states,
     double j_gb,
     int phase_parity
 ) {
-    __shared__ uint16_t tile[18][18];
+    // Contiguous 1D index mapping: consecutive threads in a warp access consecutive addresses
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_sites = L * L;
+    if (idx >= total_sites) return;
 
-    // Load 18x18 tile into shared memory, including 1-cell halo
-    int tid = threadIdx.y * blockDim.x + threadIdx.x;
-    int blockSize = blockDim.x * blockDim.y;
-    for (int i = tid; i < 324; i += blockSize) {
-        int r = i / 18 - 1;
-        int c = i % 18 - 1;
-        int gx = (blockIdx.x * blockDim.x + c) & mask;
-        int gy = (blockIdx.y * blockDim.y + r) & mask;
-        tile[r + 1][c + 1] = d_orientations[gy * L + gx];
-    }
-
-    __syncthreads();
-
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if (x >= L || y >= L) return;
+    // Bitwise mapping from contiguous 1D index to (x, y) coordinates
+    int y = (idx >> shift) & mask;
+    int x = idx & mask;
 
     // Red-Black checkerboard: phase_parity is 0 for Red, 1 for Black
     if (((x + y) & 1) != phase_parity) return;
 
-    int idx = y * L + x;
+    // Coalesced 128-byte aligned global memory access for Philox RNG state
     curandStatePhilox4_32_10_t local_state = d_states[idx];
 
-    int tx = threadIdx.x + 1;
-    int ty = threadIdx.y + 1;
-    uint16_t curr = tile[ty][tx];
+    // Coalesced global memory load for current site orientation
+    uint16_t curr = d_orientations[idx];
     
     // Generate a proposed state uniformly in [1, q_states]
     uint16_t prop = (curand(&local_state) % q_states) + 1;
 
     if (prop != curr) {
+        // Continuous 1D flattened index mapping with bitwise periodic boundary conditions
+        int up = (((y - 1) & mask) << shift) | x;
+        int down = (((y + 1) & mask) << shift) | x;
+        int left = (y << shift) | ((x - 1) & mask);
+        int right = (y << shift) | ((x + 1) & mask);
+
         double e_curr = 0.0;
         double e_prop = 0.0;
 
-        uint16_t n_up = tile[ty - 1][tx];
-        uint16_t n_down = tile[ty + 1][tx];
-        uint16_t n_left = tile[ty][tx - 1];
-        uint16_t n_right = tile[ty][tx + 1];
+        uint16_t n_up = d_orientations[up];
+        uint16_t n_down = d_orientations[down];
+        uint16_t n_left = d_orientations[left];
+        uint16_t n_right = d_orientations[right];
 
         if (n_up != curr) e_curr += j_gb;
         if (n_down != curr) e_curr += j_gb;
@@ -83,15 +78,23 @@ void launch_potts_checkerboard(
     double j_gb,
     bool is_red_phase
 ) {
-    dim3 threads(16, 16);
-    dim3 blocks((L + threads.x - 1) / threads.x, (L + threads.y - 1) / threads.y);
+    int total_sites = L * L;
+    // 256 threads per block (8 full warps) aligning global memory transactions for 128-byte warp coalescing
+    int block_size = 256;
+    int num_blocks = (total_sites + block_size - 1) / block_size;
     int mask = L - 1;
     int phase_parity = is_red_phase ? 0 : 1;
 
-    potts_checkerboard_kernel<<<blocks, threads>>>(
+    int shift = 0;
+    while ((1 << shift) < L) {
+        shift++;
+    }
+
+    potts_checkerboard_kernel<<<num_blocks, block_size>>>(
         d_orientations,
         d_states,
         L,
+        shift,
         mask,
         q_states,
         j_gb,

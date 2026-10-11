@@ -33,7 +33,20 @@ int main() {
     int num_elements = L * L;
 
     potts::Grid grid_cpu(L);
-    potts::Grid grid_gpu(L);
+    potts::Grid grid_gpu(L, true); // Pinned host memory buffer (cudaHostAlloc)
+
+    // Verify pinned host memory allocation
+    if (!grid_gpu.is_pinned()) {
+        std::cerr << "FAIL: grid_gpu is not marked as pinned.\n";
+        return 1;
+    }
+    cudaPointerAttributes attr;
+    cudaError_t attr_err = cudaPointerGetAttributes(&attr, grid_gpu.get_orientations_ptr());
+    if (attr_err != cudaSuccess || attr.type != cudaMemoryTypeHost) {
+        std::cerr << "FAIL: grid_gpu buffer is not pinned host memory (type: " << attr.type << ").\n";
+        return 1;
+    }
+    std::cout << "Verified pinned host memory buffer (cudaHostAlloc) for grid_gpu.\n";
 
     // Initialize with random states
     std::mt19937 rng(config.seed);
@@ -63,7 +76,21 @@ int main() {
     cudaMalloc(&d_orientations, num_elements * sizeof(uint16_t));
     cudaMalloc(&d_states, num_elements * sizeof(curandStatePhilox4_32_10_t));
 
+    // Profile pinned Host-to-Device transfer
+    cudaEvent_t start_event, stop_event;
+    cudaEventCreate(&start_event);
+    cudaEventCreate(&stop_event);
+
+    cudaEventRecord(start_event);
     cudaMemcpy(d_orientations, grid_gpu.get_orientations_ptr(), num_elements * sizeof(uint16_t), cudaMemcpyHostToDevice);
+    cudaEventRecord(stop_event);
+    cudaEventSynchronize(stop_event);
+
+    float h2d_ms = 0.0f;
+    cudaEventElapsedTime(&h2d_ms, start_event, stop_event);
+    double transfer_gb = (num_elements * sizeof(uint16_t)) / (1024.0 * 1024.0 * 1024.0);
+    double h2d_gbs = transfer_gb / (h2d_ms / 1000.0);
+    std::cout << "Pinned H2D Throughput: " << h2d_gbs << " GB/s (" << h2d_ms << " ms)\n";
     
     potts::cuda::CudaManager::init_curand_states(d_states, L, config.seed);
 
@@ -76,7 +103,19 @@ int main() {
         cudaDeviceSynchronize();
     }
 
+    // Profile pinned Device-to-Host transfer
+    cudaEventRecord(start_event);
     cudaMemcpy(grid_gpu.get_orientations_ptr(), d_orientations, num_elements * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+    cudaEventRecord(stop_event);
+    cudaEventSynchronize(stop_event);
+
+    float d2h_ms = 0.0f;
+    cudaEventElapsedTime(&d2h_ms, start_event, stop_event);
+    double d2h_gbs = transfer_gb / (d2h_ms / 1000.0);
+    std::cout << "Pinned D2H Throughput: " << d2h_gbs << " GB/s (" << d2h_ms << " ms)\n";
+
+    cudaEventDestroy(start_event);
+    cudaEventDestroy(stop_event);
 
     double gpu_energy = compute_energy(grid_gpu, config.j_gb);
     std::cout << "GPU Energy after " << mcs << " MCS: " << gpu_energy << "\n";
