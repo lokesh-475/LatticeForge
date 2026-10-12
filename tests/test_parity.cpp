@@ -1,11 +1,13 @@
 #include "potts/grid.hpp"
 #include "potts/mc_cpu.hpp"
 #include "cuda/potts_kernels.cuh"
+#include "cuda/kawasaki_kernels.cuh"
 #include "cuda/cuda_manager.cuh"
 #include <iostream>
 #include <vector>
 #include <random>
 #include <cmath>
+#include <cassert>
 #include <cuda_runtime.h>
 
 double compute_energy(const potts::Grid& grid, double j_gb) {
@@ -125,13 +127,92 @@ int main() {
 
     // Statistical equivalence check (within 5% difference)
     double diff = std::abs(cpu_energy - gpu_energy) / cpu_energy;
-    std::cout << "Energy difference: " << diff * 100.0 << "%\n";
+    std::cout << "Potts Energy difference: " << diff * 100.0 << "%\n";
 
-    if (diff < 0.05) {
-        std::cout << "PASS: CPU and GPU results are statistically equivalent.\n";
-        return 0;
-    } else {
-        std::cout << "FAIL: CPU and GPU results diverge significantly.\n";
+    if (diff >= 0.05) {
+        std::cout << "FAIL: CPU and GPU Potts results diverge significantly.\n";
         return 1;
     }
+    std::cout << "PASS: CPU and GPU Potts results are statistically equivalent.\n";
+
+    // =========================================================================
+    // Part 2: GPU Hamiltonian Reduction Verification vs CPU Hamiltonian
+    // =========================================================================
+    std::cout << "\n--- Testing GPU Hamiltonian Reduction vs CPU Calculation ---\n";
+    potts::Grid grid_ham(L, true);
+    potts::initialize_voronoi(grid_ham, 36, 0.30, 999);
+
+    double cpu_ham = potts::compute_total_energy_cpu(grid_ham, config);
+    std::cout << "CPU Computed Hamiltonian: " << cpu_ham << "\n";
+
+    uint8_t* d_elements = nullptr;
+    potts::cuda::GpuMetricsRaw* d_metrics = nullptr;
+    cudaMalloc(&d_orientations, num_elements * sizeof(uint16_t));
+    cudaMalloc(&d_elements, num_elements * sizeof(uint8_t));
+    cudaMalloc(&d_states, num_elements * sizeof(curandStatePhilox4_32_10_t));
+    cudaMalloc(&d_metrics, sizeof(potts::cuda::GpuMetricsRaw));
+
+    cudaMemcpy(d_orientations, grid_ham.get_orientations_ptr(), num_elements * sizeof(uint16_t), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_elements, grid_ham.get_elements_ptr(), num_elements * sizeof(uint8_t), cudaMemcpyHostToDevice);
+
+    potts::cuda::GpuMetrics gpu_metrics = potts::cuda::compute_metrics_cuda(
+        d_metrics, d_orientations, d_elements, L, config.j_gb, config.h_seg, config.j_chem
+    );
+    std::cout << "GPU Reduced Hamiltonian: " << gpu_metrics.hamiltonian << "\n";
+    std::cout << "Initial c_boundary: " << gpu_metrics.c_boundary << " | c_bulk: " << gpu_metrics.c_bulk << "\n";
+
+    double ham_err = std::abs(cpu_ham - gpu_metrics.hamiltonian);
+    std::cout << "Hamiltonian Absolute Difference: " << ham_err << "\n";
+    if (ham_err > 1e-3) {
+        std::cerr << "FAIL: GPU Hamiltonian reduction diverges from CPU calculation!\n";
+        return 1;
+    }
+    std::cout << "PASS: GPU Hamiltonian reduction matches CPU calculation.\n";
+
+    // =========================================================================
+    // Part 3: 4-Color Partition Kawasaki Kernel Atomic Conservation (Delta N_Ce = 0)
+    // =========================================================================
+    std::cout << "\n--- Testing 4-Color Partition Kawasaki Atomic Conservation (Delta N_Ce = 0) ---\n";
+    unsigned long long ce_initial = gpu_metrics.total_ce;
+    std::cout << "Initial Ce Atoms: " << ce_initial << "\n";
+
+    potts::cuda::CudaManager::init_curand_states(d_states, L, 777);
+
+    int kawasaki_steps = 50;
+    for (int s = 0; s < kawasaki_steps; ++s) {
+        // Potts step
+        potts::cuda::launch_potts_checkerboard(d_orientations, d_states, L, config.q_states, config.j_gb, true);
+        potts::cuda::launch_potts_checkerboard(d_orientations, d_states, L, config.q_states, config.j_gb, false);
+        // Kawasaki directional 4-color partition sweep
+        potts::cuda::launch_kawasaki_sweep(d_elements, d_orientations, d_states, L, config.h_seg, config.j_chem, config.temp);
+    }
+
+    potts::cuda::GpuMetrics final_metrics = potts::cuda::compute_metrics_cuda(
+        d_metrics, d_orientations, d_elements, L, config.j_gb, config.h_seg, config.j_chem
+    );
+
+    std::cout << "Final Ce Atoms: " << final_metrics.total_ce << "\n";
+    std::cout << "Final Hamiltonian: " << final_metrics.hamiltonian << "\n";
+    std::cout << "Final c_boundary: " << final_metrics.c_boundary << " | c_bulk: " << final_metrics.c_bulk << "\n";
+
+    if (final_metrics.total_ce != ce_initial) {
+        std::cerr << "FAIL: Atomic conservation violation! Expected " << ce_initial 
+                  << " Ce atoms, got " << final_metrics.total_ce << " (Delta N_Ce != 0)\n";
+        return 1;
+    }
+    std::cout << "PASS: Strict atomic conservation verified (Delta N_Ce = 0).\n";
+
+    if (final_metrics.c_boundary <= final_metrics.c_bulk) {
+        std::cerr << "FAIL: Expected c_boundary > c_bulk under segregation regime!\n";
+        return 1;
+    }
+    std::cout << "PASS: Solute boundary segregation verified (c_boundary > c_bulk).\n";
+
+    cudaFree(d_orientations);
+    cudaFree(d_elements);
+    cudaFree(d_states);
+    cudaFree(d_metrics);
+
+    std::cout << "\nALL TESTS PASSED SUCCESSFULLY.\n";
+    return 0;
 }

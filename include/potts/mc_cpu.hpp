@@ -24,6 +24,12 @@ namespace potts {
     // Returns number of accepted swaps
     int kawasaki_mc_step_cpu(Grid& grid, const Config& config, std::mt19937& rng, int steps = -1);
 
+    // Microstructure Voronoi tessellation initialization
+    void initialize_voronoi(Grid& grid, int num_grains = 36, double fraction_ce = 0.30, int seed = 42);
+
+    // Calculates total Hamiltonian on CPU
+    double compute_total_energy_cpu(const Grid& grid, const Config& config);
+
 }
 
 #endif // LATTICE_FORGE_MC_CPU_HPP

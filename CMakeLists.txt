@@ -14,9 +14,27 @@ add_executable(lattice_forge
     src/potts_cpu.cpp 
     src/kawasaki_cpu.cpp
     src/cuda/potts_kernels.cu
+    src/cuda/kawasaki_kernels.cu
     src/cuda/cuda_manager.cu
 )
 target_include_directories(lattice_forge PRIVATE include ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+
+add_executable(lattice_forge_cuda
+    src/main_cuda.cpp
+    src/grid.cpp 
+    src/potts_cpu.cpp 
+    src/kawasaki_cpu.cpp
+    src/cuda/potts_kernels.cu
+    src/cuda/kawasaki_kernels.cu
+    src/cuda/cuda_manager.cu
+)
+target_include_directories(lattice_forge_cuda PRIVATE include ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+
+add_custom_command(TARGET lattice_forge_cuda POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    $<TARGET_FILE:lattice_forge_cuda>
+    ${CMAKE_SOURCE_DIR}/lattice_forge_cuda.exe
+)
 
 enable_testing()
 add_executable(test_parity 
@@ -25,7 +43,9 @@ add_executable(test_parity
     src/potts_cpu.cpp 
     src/kawasaki_cpu.cpp
     src/cuda/potts_kernels.cu
+    src/cuda/kawasaki_kernels.cu
     src/cuda/cuda_manager.cu
 )
 target_include_directories(test_parity PRIVATE include ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 add_test(NAME ParityTest COMMAND test_parity)
+
