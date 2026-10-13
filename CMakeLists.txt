@@ -36,6 +36,24 @@ add_custom_command(TARGET lattice_forge_cuda POST_BUILD
     ${CMAKE_SOURCE_DIR}/lattice_forge_cuda.exe
 )
 
+add_executable(benchmark_engine
+    benchmarks/benchmark_engine.cu
+    src/grid.cpp 
+    src/potts_cpu.cpp 
+    src/kawasaki_cpu.cpp
+    src/cuda/potts_kernels.cu
+    src/cuda/kawasaki_kernels.cu
+    src/cuda/cuda_manager.cu
+)
+target_include_directories(benchmark_engine PRIVATE include ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+
+add_custom_command(TARGET benchmark_engine POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    $<TARGET_FILE:benchmark_engine>
+    ${CMAKE_SOURCE_DIR}/benchmark_engine.exe
+)
+
+
 enable_testing()
 add_executable(test_parity 
     tests/test_parity.cpp 
