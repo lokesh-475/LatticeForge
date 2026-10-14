@@ -13,17 +13,25 @@ add_executable(lattice_forge
     src/grid.cpp 
     src/potts_cpu.cpp 
     src/kawasaki_cpu.cpp
+    src/radial_profile.cpp
     src/cuda/potts_kernels.cu
     src/cuda/kawasaki_kernels.cu
     src/cuda/cuda_manager.cu
 )
 target_include_directories(lattice_forge PRIVATE include ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 
+add_custom_command(TARGET lattice_forge POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    $<TARGET_FILE:lattice_forge>
+    ${CMAKE_SOURCE_DIR}/lattice_forge.exe
+)
+
 add_executable(lattice_forge_cuda
     src/main_cuda.cpp
     src/grid.cpp 
     src/potts_cpu.cpp 
     src/kawasaki_cpu.cpp
+    src/radial_profile.cpp
     src/cuda/potts_kernels.cu
     src/cuda/kawasaki_kernels.cu
     src/cuda/cuda_manager.cu
@@ -41,6 +49,7 @@ add_executable(benchmark_engine
     src/grid.cpp 
     src/potts_cpu.cpp 
     src/kawasaki_cpu.cpp
+    src/radial_profile.cpp
     src/cuda/potts_kernels.cu
     src/cuda/kawasaki_kernels.cu
     src/cuda/cuda_manager.cu
@@ -60,6 +69,7 @@ add_executable(test_parity
     src/grid.cpp 
     src/potts_cpu.cpp 
     src/kawasaki_cpu.cpp
+    src/radial_profile.cpp
     src/cuda/potts_kernels.cu
     src/cuda/kawasaki_kernels.cu
     src/cuda/cuda_manager.cu

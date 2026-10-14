@@ -3,6 +3,7 @@
 #include "cuda/potts_kernels.cuh"
 #include "cuda/kawasaki_kernels.cuh"
 #include "cuda/cuda_manager.cuh"
+#include "potts/radial_profile.hpp"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -156,6 +157,32 @@ int main(int argc, char** argv) {
             std::filesystem::copy_file(csv_path, "outputs/energy_log.csv", std::filesystem::copy_options::overwrite_existing);
         } catch (...) {}
     }
+
+    // Copy final microstructure from Device to Host for spatial analytics
+    cudaMemcpy(grid.get_orientations_ptr(), d_orientations, total_sites * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(grid.get_elements_ptr(), d_elements, total_sites * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+
+    // Compute grain centroids, radial concentration profile, and shell thickness
+    std::string radial_path = potts::resolve_output_file("radial_profile.csv");
+    std::string centroids_path = potts::resolve_output_file("grain_centroids.csv");
+    potts::RadialProfileResult radial_res = potts::compute_radial_profile(grid, 0.5, 10);
+    potts::export_radial_profile_csv(radial_res, radial_path, centroids_path);
+
+    std::cout << "\n========================================================\n";
+    std::cout << " Radial Concentration & Shell Thickness Analytics       \n";
+    std::cout << "========================================================\n";
+    std::cout << " Identified Grains     : " << radial_res.grains.size() << "\n";
+    std::cout << " Mean Boundary Radius  : " << std::fixed << std::setprecision(2) << radial_res.avg_grain_radius << " lattice units\n";
+    std::cout << " Bulk Core Conc. (C0)  : " << std::setprecision(4) << radial_res.c_core << "\n";
+    std::cout << " Boundary Peak Conc.   : " << radial_res.c_peak << "\n";
+    std::cout << " Enrichment (Peak/Core): " << std::setprecision(2) << radial_res.enrichment_ratio << "x\n";
+    std::cout << " Shell Threshold (C50) : " << std::setprecision(4) << radial_res.shell_threshold << "\n";
+    std::cout << " Inner Shell Radius    : " << std::setprecision(2) << radial_res.r_inner << " lattice units\n";
+    std::cout << " Outer Shell Radius    : " << radial_res.r_outer << " lattice units\n";
+    std::cout << " Quantitative Thickness: " << radial_res.shell_thickness << " lattice units ("
+              << (radial_res.r_outer > 0 ? (radial_res.shell_thickness / radial_res.r_outer * 100.0) : 0.0) << "% of radius)\n";
+    std::cout << " Exported Radial Profile to " << radial_path << "\n";
+    std::cout << "========================================================\n\n";
 
     // Cleanup
     cudaFree(d_orientations);

@@ -2,8 +2,10 @@
 #include <vector>
 #include <random>
 #include <cmath>
+#include <iomanip>
 #include "potts/grid.hpp"
 #include "potts/mc_cpu.hpp"
+#include "potts/radial_profile.hpp"
 
 class LatticeForgeEngine {
 private:
@@ -13,15 +15,8 @@ private:
 
 public:
     LatticeForgeEngine(potts::Config c) : config(c), grid(c.size), rng(c.seed) {
-        std::uniform_int_distribution<int> q_dist(1, c.q_states);
-        std::uniform_real_distribution<double> e_dist(0.0, 1.0);
-        
-        for (int y = 0; y < c.size; ++y) {
-            for (int x = 0; x < c.size; ++x) {
-                grid.set_orientation(y, x, static_cast<uint16_t>(q_dist(rng)));
-                grid.set_element(y, x, e_dist(rng) < 0.3 ? 1 : 0); // 30% Ce
-            }
-        }
+        // Initialize with realistic polycrystalline Voronoi grains
+        potts::initialize_voronoi(grid, 36, 0.30, c.seed);
     }
 
     void run(int steps) {
@@ -32,12 +27,33 @@ public:
             if (s % 10 == 0) std::cout << "Step " << s << " completed.\n";
         }
         std::cout << "Simulation finished.\n";
+
+        // Compute grain centroids and radial profile analytics
+        std::string radial_path = potts::resolve_output_file("radial_profile.csv");
+        std::string centroids_path = potts::resolve_output_file("grain_centroids.csv");
+        auto radial_res = potts::compute_radial_profile(grid, 0.5, 10);
+        potts::export_radial_profile_csv(radial_res, radial_path, centroids_path);
+
+        std::cout << "\n========================================================\n";
+        std::cout << " Radial Concentration & Shell Thickness Analytics (CPU) \n";
+        std::cout << "========================================================\n";
+        std::cout << " Identified Grains     : " << radial_res.grains.size() << "\n";
+        std::cout << " Mean Boundary Radius  : " << std::fixed << std::setprecision(2) << radial_res.avg_grain_radius << " lattice units\n";
+        std::cout << " Bulk Core Conc. (C0)  : " << std::setprecision(4) << radial_res.c_core << "\n";
+        std::cout << " Boundary Peak Conc.   : " << radial_res.c_peak << "\n";
+        std::cout << " Enrichment (Peak/Core): " << std::setprecision(2) << radial_res.enrichment_ratio << "x\n";
+        std::cout << " Shell Threshold (C50) : " << std::setprecision(4) << radial_res.shell_threshold << "\n";
+        std::cout << " Inner Shell Radius    : " << std::setprecision(2) << radial_res.r_inner << " lattice units\n";
+        std::cout << " Outer Shell Radius    : " << radial_res.r_outer << " lattice units\n";
+        std::cout << " Quantitative Thickness: " << radial_res.shell_thickness << " lattice units\n";
+        std::cout << " Exported Radial Profile to " << radial_path << "\n";
+        std::cout << "========================================================\n";
     }
 };
 
 int main() {
     potts::Config cfg;
-    cfg.size = 128; // Must be power of 2 for new Grid class
+    cfg.size = 128; // Must be power of 2 for Grid class
     cfg.temp = 0.4; // Low Ts
     
     LatticeForgeEngine engine(cfg);
