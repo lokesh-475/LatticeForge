@@ -14,6 +14,7 @@
 #include <random>
 #include <cmath>
 #include <cstdint>
+#include <chrono>
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
@@ -33,12 +34,25 @@ struct BenchmarkResult {
     int grid_dim;
     long long total_sites;
     int mcs_steps;
+
+    // CUDA Timings (ms) & Throughput
     float potts_time_ms;
     float kawasaki_time_ms;
     float total_time_ms;
     double potts_gsups;
     double kawasaki_gsups;
     double sustained_gsups;
+
+    // Single-Threaded CPU Baseline Timings (ms) & Throughput
+    float cpu_potts_time_ms;
+    float cpu_kawasaki_time_ms;
+    float cpu_total_time_ms;
+    double cpu_sustained_gsups;
+
+    // Relative Acceleration / Speedup Factors (x-fold)
+    double potts_speedup;
+    double kawasaki_speedup;
+    double sustained_speedup;
 };
 
 struct GpuVoronoiSeed {
@@ -93,6 +107,19 @@ std::string resolve_benchmark_csv_path() {
     }
     fs::create_directories("outputs");
     return "outputs/benchmark_results.csv";
+}
+
+std::string resolve_performance_logs_path() {
+    if (fs::exists("docs") && fs::is_directory("docs")) {
+        fs::create_directories("docs/benchmarks");
+        return "docs/benchmarks/performance_logs.csv";
+    }
+    if (fs::exists("../docs") && fs::is_directory("../docs")) {
+        fs::create_directories("../docs/benchmarks");
+        return "../docs/benchmarks/performance_logs.csv";
+    }
+    fs::create_directories("docs/benchmarks");
+    return "docs/benchmarks/performance_logs.csv";
 }
 
 void print_gpu_info() {
@@ -232,7 +259,7 @@ BenchmarkResult benchmark_grid(int L, int mcs_steps, int warmup_steps) {
     CUDA_CHECK(cudaFree(d_elements));
     CUDA_CHECK(cudaFree(d_states));
 
-    // Giga-SUPS Calculation:
+    // Giga-SUPS Calculation (GPU):
     // 1 Site Update = 1 lattice site evaluation
     // Site Updates across M steps = total_sites * mcs_steps
     // Giga-SUPS = (total_sites * mcs_steps) / (time_ms * 1e6)
@@ -241,12 +268,75 @@ BenchmarkResult benchmark_grid(int L, int mcs_steps, int warmup_steps) {
     double kawasaki_gsups = total_evaluations / (kawasaki_time_ms * 1.0e6);
     double sustained_gsups = total_evaluations / (total_time_ms * 1.0e6);
 
-    std::cout << "    Potts Time:      " << std::setw(9) << std::fixed << std::setprecision(3) << potts_time_ms 
-              << " ms | Throughput: " << std::setw(6) << std::setprecision(2) << potts_gsups << " Giga-SUPS\n";
-    std::cout << "    Kawasaki Time:   " << std::setw(9) << std::fixed << std::setprecision(3) << kawasaki_time_ms 
-              << " ms | Throughput: " << std::setw(6) << std::setprecision(2) << kawasaki_gsups << " Giga-SUPS\n";
-    std::cout << "    Sustained Total: " << std::setw(9) << std::fixed << std::setprecision(3) << total_time_ms 
-              << " ms | Throughput: " << std::setw(6) << std::setprecision(2) << sustained_gsups << " Giga-SUPS\n\n";
+    // -------------------------------------------------------------------------
+    // Single-Threaded C++ Baseline Benchmark Phase
+    // -------------------------------------------------------------------------
+    std::cout << "    [CPU Baseline] Profiling single-threaded C++ engine for Grid: " << L << "x" << L << "...\n";
+    int cpu_sample_steps = (L >= 2048) ? 5 : ((L >= 1024) ? 10 : ((L >= 512) ? 20 : 50));
+    
+    potts::Grid cpu_grid(L);
+    potts::initialize_voronoi(cpu_grid, num_grains, fraction_ce, static_cast<int>(seed));
+    std::mt19937 cpu_rng(static_cast<unsigned int>(seed));
+    potts::Config cpu_config;
+    cpu_config.size = L;
+    cpu_config.q_states = q_states;
+    cpu_config.temp = temp;
+    cpu_config.j_gb = j_gb;
+    cpu_config.h_seg = h_seg;
+    cpu_config.j_chem = j_chem;
+    cpu_config.seed = static_cast<int>(seed);
+
+    // Warm-up CPU caches
+    for (int w = 0; w < std::min(2, warmup_steps); ++w) {
+        potts::potts_mc_step_cpu(cpu_grid, cpu_config, cpu_rng);
+        potts::kawasaki_mc_step_cpu(cpu_grid, cpu_config, cpu_rng);
+    }
+
+    // 1. CPU Potts Sweep
+    auto c_p_start = std::chrono::high_resolution_clock::now();
+    for (int s = 0; s < cpu_sample_steps; ++s) {
+        potts::potts_mc_step_cpu(cpu_grid, cpu_config, cpu_rng);
+    }
+    auto c_p_stop = std::chrono::high_resolution_clock::now();
+    double cpu_p_sample_ms = std::chrono::duration<double, std::milli>(c_p_stop - c_p_start).count();
+    float cpu_potts_time_ms = static_cast<float>((cpu_p_sample_ms / cpu_sample_steps) * mcs_steps);
+
+    // 2. CPU Kawasaki Sweep
+    auto c_k_start = std::chrono::high_resolution_clock::now();
+    for (int s = 0; s < cpu_sample_steps; ++s) {
+        potts::kawasaki_mc_step_cpu(cpu_grid, cpu_config, cpu_rng);
+    }
+    auto c_k_stop = std::chrono::high_resolution_clock::now();
+    double cpu_k_sample_ms = std::chrono::duration<double, std::milli>(c_k_stop - c_k_start).count();
+    float cpu_kawasaki_time_ms = static_cast<float>((cpu_k_sample_ms / cpu_sample_steps) * mcs_steps);
+
+    // 3. CPU Sustained Multi-Physics Pipeline
+    auto c_tot_start = std::chrono::high_resolution_clock::now();
+    for (int s = 0; s < cpu_sample_steps; ++s) {
+        potts::potts_mc_step_cpu(cpu_grid, cpu_config, cpu_rng);
+        potts::kawasaki_mc_step_cpu(cpu_grid, cpu_config, cpu_rng);
+    }
+    auto c_tot_stop = std::chrono::high_resolution_clock::now();
+    double cpu_tot_sample_ms = std::chrono::duration<double, std::milli>(c_tot_stop - c_tot_start).count();
+    float cpu_total_time_ms = static_cast<float>((cpu_tot_sample_ms / cpu_sample_steps) * mcs_steps);
+
+    double cpu_sustained_gsups = total_evaluations / (cpu_total_time_ms * 1.0e6);
+
+    // Relative Speedup Calculation
+    double potts_speedup = (potts_time_ms > 0.0f) ? (static_cast<double>(cpu_potts_time_ms) / potts_time_ms) : 1.0;
+    double kawasaki_speedup = (kawasaki_time_ms > 0.0f) ? (static_cast<double>(cpu_kawasaki_time_ms) / kawasaki_time_ms) : 1.0;
+    double sustained_speedup = (total_time_ms > 0.0f) ? (static_cast<double>(cpu_total_time_ms) / total_time_ms) : 1.0;
+
+    std::cout << "    [CUDA GPU] Potts:     " << std::setw(9) << std::fixed << std::setprecision(3) << potts_time_ms 
+              << " ms | " << std::setw(6) << std::setprecision(2) << potts_gsups << " G-SUPS\n";
+    std::cout << "    [CUDA GPU] Kawasaki:  " << std::setw(9) << std::fixed << std::setprecision(3) << kawasaki_time_ms 
+              << " ms | " << std::setw(6) << std::setprecision(2) << kawasaki_gsups << " G-SUPS\n";
+    std::cout << "    [CUDA GPU] Sustained: " << std::setw(9) << std::fixed << std::setprecision(3) << total_time_ms 
+              << " ms | " << std::setw(6) << std::setprecision(2) << sustained_gsups << " G-SUPS\n";
+    std::cout << "    [CPU Base] Sustained: " << std::setw(9) << std::fixed << std::setprecision(3) << cpu_total_time_ms 
+              << " ms | " << std::setw(6) << std::setprecision(3) << cpu_sustained_gsups << " G-SUPS\n";
+    std::cout << "    >>> Relative Acceleration: " << std::setw(6) << std::setprecision(2) << sustained_speedup 
+              << "x (Potts: " << potts_speedup << "x, Kawasaki: " << kawasaki_speedup << "x)\n\n";
 
     return BenchmarkResult{
         L,
@@ -257,7 +347,14 @@ BenchmarkResult benchmark_grid(int L, int mcs_steps, int warmup_steps) {
         total_time_ms,
         potts_gsups,
         kawasaki_gsups,
-        sustained_gsups
+        sustained_gsups,
+        cpu_potts_time_ms,
+        cpu_kawasaki_time_ms,
+        cpu_total_time_ms,
+        cpu_sustained_gsups,
+        potts_speedup,
+        kawasaki_speedup,
+        sustained_speedup
     };
 }
 
@@ -283,76 +380,116 @@ int main(int argc, char** argv) {
         results.push_back(res);
     }
 
-    // Output raw timing and Giga-SUPS metrics to outputs/benchmark_results.csv
+    // Write performance logs to outputs/benchmark_results.csv and docs/benchmarks/performance_logs.csv
     std::string csv_path = resolve_benchmark_csv_path();
-    std::ofstream csv_file(csv_path);
-    if (!csv_file.is_open()) {
-        std::cerr << "Failed to open CSV file for writing at: " << csv_path << "\n";
-        return 1;
+    std::string docs_csv_path = resolve_performance_logs_path();
+
+    auto write_csv = [&](const std::string& path) {
+        std::ofstream csv_file(path);
+        if (!csv_file.is_open()) {
+            std::cerr << "Failed to open CSV file for writing at: " << path << "\n";
+            return false;
+        }
+
+        csv_file << "grid_dim,total_sites,mcs_steps,"
+                 << "potts_time_ms,kawasaki_time_ms,total_time_ms,"
+                 << "potts_gsups,kawasaki_gsups,sustained_gsups,"
+                 << "cpu_potts_time_ms,cpu_kawasaki_time_ms,cpu_total_time_ms,"
+                 << "cpu_sustained_gsups,potts_speedup,kawasaki_speedup,sustained_speedup\n";
+
+        for (const auto& r : results) {
+            csv_file << r.grid_dim << ","
+                     << r.total_sites << ","
+                     << r.mcs_steps << ","
+                     << std::fixed << std::setprecision(4)
+                     << r.potts_time_ms << ","
+                     << r.kawasaki_time_ms << ","
+                     << r.total_time_ms << ","
+                     << std::setprecision(4)
+                     << r.potts_gsups << ","
+                     << r.kawasaki_gsups << ","
+                     << r.sustained_gsups << ","
+                     << r.cpu_potts_time_ms << ","
+                     << r.cpu_kawasaki_time_ms << ","
+                     << r.cpu_total_time_ms << ","
+                     << r.cpu_sustained_gsups << ","
+                     << std::setprecision(2)
+                     << r.potts_speedup << ","
+                     << r.kawasaki_speedup << ","
+                     << r.sustained_speedup << "\n";
+        }
+        csv_file.close();
+        return true;
+    };
+
+    write_csv(csv_path);
+    write_csv(docs_csv_path);
+
+    // Mirror to alternative directory structures if running from build/
+    if (csv_path == "outputs/benchmark_results.csv" && fs::exists("../outputs")) {
+        try { fs::copy_file(csv_path, "../outputs/benchmark_results.csv", fs::copy_options::overwrite_existing); } catch (...) {}
+    } else if (csv_path == "../outputs/benchmark_results.csv" && fs::exists("outputs")) {
+        try { fs::copy_file(csv_path, "outputs/benchmark_results.csv", fs::copy_options::overwrite_existing); } catch (...) {}
     }
 
-    csv_file << "grid_dim,total_sites,mcs_steps,potts_time_ms,kawasaki_time_ms,total_time_ms,potts_gsups,kawasaki_gsups,sustained_gsups\n";
-    for (const auto& r : results) {
-        csv_file << r.grid_dim << ","
-                 << r.total_sites << ","
-                 << r.mcs_steps << ","
-                 << std::fixed << std::setprecision(4) << r.potts_time_ms << ","
-                 << r.kawasaki_time_ms << ","
-                 << r.total_time_ms << ","
-                 << std::setprecision(4) << r.potts_gsups << ","
-                 << r.kawasaki_gsups << ","
-                 << r.sustained_gsups << "\n";
-    }
-    csv_file.close();
-
-    // Mirror to ../outputs/benchmark_results.csv or outputs/benchmark_results.csv if needed
-    if (csv_path == "../outputs/benchmark_results.csv" && fs::exists("outputs")) {
+    if (docs_csv_path == "docs/benchmarks/performance_logs.csv" && fs::exists("../docs")) {
         try {
-            fs::copy_file(csv_path, "outputs/benchmark_results.csv", fs::copy_options::overwrite_existing);
+            fs::create_directories("../docs/benchmarks");
+            fs::copy_file(docs_csv_path, "../docs/benchmarks/performance_logs.csv", fs::copy_options::overwrite_existing);
         } catch (...) {}
-    } else if (csv_path == "outputs/benchmark_results.csv" && fs::exists("../outputs")) {
+    } else if (docs_csv_path == "../docs/benchmarks/performance_logs.csv" && fs::exists("docs")) {
         try {
-            fs::copy_file(csv_path, "../outputs/benchmark_results.csv", fs::copy_options::overwrite_existing);
+            fs::create_directories("docs/benchmarks");
+            fs::copy_file(docs_csv_path, "docs/benchmarks/performance_logs.csv", fs::copy_options::overwrite_existing);
         } catch (...) {}
     }
 
     // Print Formatted Summary Table
-    std::cout << "========================================================================================================================\n";
-    std::cout << "                                         LATTICEFORGE BENCHMARK SUMMARY RESULTS                                         \n";
-    std::cout << "========================================================================================================================\n";
+    std::cout << "\n===================================================================================================================================================\n";
+    std::cout << "                                               LATTICEFORGE BENCHMARK SUMMARY & ACCELERATION RESULTS                                               \n";
+    std::cout << "===================================================================================================================================================\n";
     std::cout << std::setw(11) << "Grid Dim" 
               << std::setw(14) << "Total Sites" 
               << std::setw(11) << "MCS Steps" 
-              << std::setw(15) << "Potts (ms)" 
-              << std::setw(16) << "Kawasaki (ms)" 
-              << std::setw(14) << "Total (ms)" 
-              << std::setw(16) << "Potts G-SUPS" 
-              << std::setw(18) << "Kawasaki G-SUPS" 
-              << std::setw(19) << "Sustained G-SUPS" << "\n";
-    std::cout << std::string(120, '-') << "\n";
+              << std::setw(15) << "GPU Time(ms)" 
+              << std::setw(15) << "CPU Time(ms)" 
+              << std::setw(13) << "GPU G-SUPS" 
+              << std::setw(13) << "CPU G-SUPS" 
+              << std::setw(15) << "Potts Speedup"
+              << std::setw(18) << "Kawasaki Speedup" 
+              << std::setw(19) << "Sustained Speedup" << "\n";
+    std::cout << std::string(147, '-') << "\n";
 
     for (const auto& r : results) {
         std::string dim_str = std::to_string(r.grid_dim) + "x" + std::to_string(r.grid_dim);
         std::cout << std::setw(11) << dim_str
                   << std::setw(14) << r.total_sites
                   << std::setw(11) << r.mcs_steps
-                  << std::setw(15) << std::fixed << std::setprecision(3) << r.potts_time_ms
-                  << std::setw(16) << r.kawasaki_time_ms
-                  << std::setw(14) << r.total_time_ms
-                  << std::setw(16) << std::setprecision(2) << r.potts_gsups
-                  << std::setw(18) << r.kawasaki_gsups
-                  << std::setw(19) << r.sustained_gsups << "\n";
+                  << std::setw(15) << std::fixed << std::setprecision(2) << r.total_time_ms
+                  << std::setw(15) << r.cpu_total_time_ms
+                  << std::setw(13) << std::setprecision(2) << r.sustained_gsups
+                  << std::setw(13) << std::setprecision(4) << r.cpu_sustained_gsups
+                  << std::setw(14) << std::setprecision(2) << r.potts_speedup << "x"
+                  << std::setw(17) << r.kawasaki_speedup << "x"
+                  << std::setw(18) << r.sustained_speedup << "x" << "\n";
     }
-    std::cout << std::string(120, '=') << "\n\n";
+    std::cout << std::string(147, '=') << "\n\n";
 
-    std::cout << "[Giga-SUPS Summary] Sustained Throughput across grids:\n";
+    std::cout << "[Speedup Verification Target: >40x Acceleration on Production Lattice]\n";
     for (const auto& r : results) {
         std::cout << "  - Grid " << std::setw(4) << r.grid_dim << "^2 (" 
                   << std::setw(7) << r.total_sites << " sites): "
-                  << std::fixed << std::setprecision(2) << r.sustained_gsups << " Giga-SUPS ("
-                  << r.total_time_ms << " ms raw timing)\n";
+                  << std::fixed << std::setprecision(2) << r.sustained_speedup << "x sustained speedup "
+                  << "(GPU: " << r.total_time_ms << " ms vs CPU: " << r.cpu_total_time_ms << " ms)";
+        if (r.sustained_speedup >= 40.0) {
+            std::cout << "  [PASSED >40x TARGET!]\n";
+        } else {
+            std::cout << "\n";
+        }
     }
-    std::cout << "\nRaw timing and throughput written to: " << csv_path << "\n";
+    std::cout << "\nDetailed performance logs written to:\n";
+    std::cout << "  - " << csv_path << "\n";
+    std::cout << "  - " << docs_csv_path << "\n\n";
 
     return 0;
 }
