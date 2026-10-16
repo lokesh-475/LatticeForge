@@ -4,6 +4,7 @@
 #include "cuda/kawasaki_kernels.cuh"
 #include "cuda/cuda_manager.cuh"
 #include "potts/radial_profile.hpp"
+#include "potts/lattice_io.hpp"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -162,6 +163,17 @@ int main(int argc, char** argv) {
     cudaMemcpy(grid.get_orientations_ptr(), d_orientations, total_sites * sizeof(uint16_t), cudaMemcpyDeviceToHost);
     cudaMemcpy(grid.get_elements_ptr(), d_elements, total_sites * sizeof(uint8_t), cudaMemcpyDeviceToHost);
 
+    // High-throughput raw uncompressed binary snapshot dump
+    std::string snapshot_path = potts::resolve_output_file("lattice_state.bin");
+    auto io_res = potts::dump_lattice_binary(snapshot_path, grid, total_mcs, config);
+    if (io_res.success) {
+        std::cout << "Dumped binary snapshot : " << snapshot_path << " (" 
+                  << total_sites << " sites, "
+                  << std::fixed << std::setprecision(2) << (io_res.total_file_bytes / (1024.0 * 1024.0)) << " MB) in "
+                  << std::setprecision(3) << io_res.time_ms << " ms ["
+                  << std::setprecision(1) << io_res.throughput_mb_s << " MB/s]\n";
+    }
+
     // Compute grain centroids, radial concentration profile, and shell thickness
     std::string radial_path = potts::resolve_output_file("radial_profile.csv");
     std::string centroids_path = potts::resolve_output_file("grain_centroids.csv");
@@ -182,6 +194,7 @@ int main(int argc, char** argv) {
     std::cout << " Quantitative Thickness: " << radial_res.shell_thickness << " lattice units ("
               << (radial_res.r_outer > 0 ? (radial_res.shell_thickness / radial_res.r_outer * 100.0) : 0.0) << "% of radius)\n";
     std::cout << " Exported Radial Profile to " << radial_path << "\n";
+    std::cout << " Exported Binary State : " << snapshot_path << " (" << std::fixed << std::setprecision(3) << io_res.time_ms << " ms)\n";
     std::cout << "========================================================\n\n";
 
     // Cleanup

@@ -14,6 +14,7 @@ add_executable(lattice_forge
     src/potts_cpu.cpp 
     src/kawasaki_cpu.cpp
     src/radial_profile.cpp
+    src/lattice_io.cpp
     src/cuda/potts_kernels.cu
     src/cuda/kawasaki_kernels.cu
     src/cuda/cuda_manager.cu
@@ -32,6 +33,7 @@ add_executable(lattice_forge_cuda
     src/potts_cpu.cpp 
     src/kawasaki_cpu.cpp
     src/radial_profile.cpp
+    src/lattice_io.cpp
     src/cuda/potts_kernels.cu
     src/cuda/kawasaki_kernels.cu
     src/cuda/cuda_manager.cu
@@ -50,6 +52,7 @@ add_executable(benchmark_engine
     src/potts_cpu.cpp 
     src/kawasaki_cpu.cpp
     src/radial_profile.cpp
+    src/lattice_io.cpp
     src/cuda/potts_kernels.cu
     src/cuda/kawasaki_kernels.cu
     src/cuda/cuda_manager.cu
@@ -70,10 +73,25 @@ add_executable(test_parity
     src/potts_cpu.cpp 
     src/kawasaki_cpu.cpp
     src/radial_profile.cpp
+    src/lattice_io.cpp
     src/cuda/potts_kernels.cu
     src/cuda/kawasaki_kernels.cu
     src/cuda/cuda_manager.cu
 )
 target_include_directories(test_parity PRIVATE include ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 add_test(NAME ParityTest COMMAND test_parity)
+
+add_executable(test_io 
+    tests/test_io.cpp 
+    src/grid.cpp 
+    src/potts_cpu.cpp 
+    src/kawasaki_cpu.cpp
+    src/radial_profile.cpp
+    src/lattice_io.cpp
+    src/cuda/potts_kernels.cu
+    src/cuda/kawasaki_kernels.cu
+    src/cuda/cuda_manager.cu
+)
+target_include_directories(test_io PRIVATE include ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+add_test(NAME IoTest COMMAND test_io)
 

@@ -1,5 +1,6 @@
 #include "potts/grid.hpp"
 #include "potts/mc_cpu.hpp"
+#include "potts/lattice_io.hpp"
 #include "cuda/potts_kernels.cuh"
 #include "cuda/kawasaki_kernels.cuh"
 #include "cuda/cuda_manager.cuh"
@@ -335,6 +336,15 @@ BenchmarkResult benchmark_grid(int L, int mcs_steps, int warmup_steps) {
               << " ms | " << std::setw(6) << std::setprecision(2) << sustained_gsups << " G-SUPS\n";
     std::cout << "    [CPU Base] Sustained: " << std::setw(9) << std::fixed << std::setprecision(3) << cpu_total_time_ms 
               << " ms | " << std::setw(6) << std::setprecision(3) << cpu_sustained_gsups << " G-SUPS\n";
+    // 4. Raw Binary Lattice Dump Benchmark (I/O throughput)
+    std::string bench_snap_path = "outputs/lattice_state.bin";
+    auto io_res = potts::dump_lattice_binary(bench_snap_path, cpu_grid, mcs_steps, cpu_config);
+    if (io_res.success) {
+        std::cout << "    [Binary I/O] Raw Snapshot Dump: " << std::fixed << std::setprecision(3) << io_res.time_ms 
+                  << " ms | " << std::setprecision(1) << io_res.throughput_mb_s << " MB/s ("
+                  << std::setprecision(2) << (io_res.total_file_bytes / (1024.0 * 1024.0)) << " MB uncompressed)\n";
+    }
+
     std::cout << "    >>> Relative Acceleration: " << std::setw(6) << std::setprecision(2) << sustained_speedup 
               << "x (Potts: " << potts_speedup << "x, Kawasaki: " << kawasaki_speedup << "x)\n\n";
 

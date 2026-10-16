@@ -6,6 +6,7 @@
 #include "potts/grid.hpp"
 #include "potts/mc_cpu.hpp"
 #include "potts/radial_profile.hpp"
+#include "potts/lattice_io.hpp"
 
 class LatticeForgeEngine {
 private:
@@ -28,6 +29,17 @@ public:
         }
         std::cout << "Simulation finished.\n";
 
+        // Dump high-throughput uncompressed binary snapshot
+        std::string snapshot_path = potts::resolve_output_file("lattice_state.bin");
+        auto io_res = potts::dump_lattice_binary(snapshot_path, grid, steps, config);
+        if (io_res.success) {
+            std::cout << "Dumped binary snapshot : " << snapshot_path << " (" 
+                      << grid.total_sites() << " sites, "
+                      << std::fixed << std::setprecision(2) << (io_res.total_file_bytes / (1024.0 * 1024.0)) << " MB) in "
+                      << std::setprecision(3) << io_res.time_ms << " ms ["
+                      << std::setprecision(1) << io_res.throughput_mb_s << " MB/s]\n";
+        }
+
         // Compute grain centroids and radial profile analytics
         std::string radial_path = potts::resolve_output_file("radial_profile.csv");
         std::string centroids_path = potts::resolve_output_file("grain_centroids.csv");
@@ -47,6 +59,7 @@ public:
         std::cout << " Outer Shell Radius    : " << radial_res.r_outer << " lattice units\n";
         std::cout << " Quantitative Thickness: " << radial_res.shell_thickness << " lattice units\n";
         std::cout << " Exported Radial Profile to " << radial_path << "\n";
+        std::cout << " Exported Binary State : " << snapshot_path << " (" << std::fixed << std::setprecision(3) << io_res.time_ms << " ms)\n";
         std::cout << "========================================================\n";
     }
 };
