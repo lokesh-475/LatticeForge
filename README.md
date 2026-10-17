@@ -22,3 +22,8 @@ Read and inspect with Python:
 ```bash
 python python/tools/read_lattice_binary.py outputs/lattice_state.bin --save-plot
 ```
+
+Generate dynamic sintering animation GIF:
+```bash
+python python/tools/generate_animation.py outputs/lattice_state.bin --output outputs/sintering_demo.gif
+```

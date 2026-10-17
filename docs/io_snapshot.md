@@ -103,14 +103,19 @@ if (potts::load_lattice_binary("outputs/lattice_state.bin", grid, &header, &err)
 Load full multi-million site arrays directly into NumPy memory buffers in sub-millisecond speeds:
 
 ```python
-from python.tools.read_lattice_binary import load_lattice_snapshot
+from python.tools.read_lattice_binary import load_lattice_snapshot, load_lattice_frames
 
+# Load single snapshot (sub-millisecond streaming)
 data = load_lattice_snapshot("outputs/lattice_state.bin")
 sigma = data["sigma"]    # 2D uint16 array [L, L]
 c = data["c"]            # 2D uint8 array [L, L]
 header = data["header"]  # Physical parameters and simulation step
 
 print(f"Loaded {data['L']}x{data['L']} lattice in {data['read_time_ms']:.3f} ms")
+
+# Load multi-frame trajectory
+frames = load_lattice_frames("outputs/lattice_state.bin")
+print(f"Loaded {len(frames)} frame(s) from binary stream.")
 ```
 
 Or execute directly from CLI to inspect metadata and generate a visualization:
@@ -118,3 +123,19 @@ Or execute directly from CLI to inspect metadata and generate a visualization:
 ```cmd
 python python/tools/read_lattice_binary.py outputs/lattice_state.bin --save-plot
 ```
+
+---
+
+## Dynamic Sintering Animation (`python/tools/generate_animation.py`)
+
+Parse single or multi-frame binary snapshots and compile publication-grade animated GIF simulations of coupled Potts grain growth and Kawasaki core-shell segregation:
+
+```cmd
+python python/tools/generate_animation.py outputs/lattice_state.bin --frames 40 --fps 10 --output outputs/sintering_demo.gif
+```
+
+Features:
+- **Direct Multi-Frame Parsing**: Renders pre-computed frames directly from multi-snapshot binary files.
+- **Dynamic Microstructure Evolution**: When seeded with a single snapshot, dynamically simulates forward kinetic evolution (Potts MC + Kawasaki diffusion) matching the physical parameters in the binary header.
+- **Dual-Panel HUD**: Live tracking of Monte Carlo step (MCS), active grains $Q$, solute boundary partition percentage, and quantitative core-shell enrichment.
+
