@@ -95,3 +95,8 @@ add_executable(test_io
 target_include_directories(test_io PRIVATE include ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 add_test(NAME IoTest COMMAND test_io)
 
+find_program(POWERSHELL_EXE powershell)
+if (POWERSHELL_EXE)
+    add_test(NAME RegressionSuite COMMAND ${POWERSHELL_EXE} -NoProfile -ExecutionPolicy Bypass -File ${CMAKE_SOURCE_DIR}/tests/run_regression.ps1)
+endif()
+

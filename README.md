@@ -18,3 +18,19 @@ Generate dynamic sintering animation GIF:
 ```bash
 python python/tools/generate_animation.py outputs/lattice_state.bin --output outputs/sintering_demo.gif
 ```
+
+## Regression Suite & Temperature Sweeps
+
+Run the automated local PowerShell regression suite across dual temperature sintering regimes ($T_s = 0.4$ and $T_s = 2.8$):
+```powershell
+powershell -ExecutionPolicy Bypass -File tests/run_regression.ps1
+```
+Or execute via `ctest`:
+```bash
+ctest --output-on-failure
+```
+Validates:
+- **Output Generation**: Energy logs, 128-byte raw binary snapshots, radial profiles, and grain centroids.
+- **Energy Descent**: Hamiltonian energy minimization ($\Delta H < 0$).
+- **Invariant Conservation**: Strict atomic species conservation ($\Delta N_{Ce} = 0$).
+- **Dual-Temperature Kinetics**: Confirms boundary segregation enrichment at low temperature ($T_s = 0.4$) exceeds thermal dissolution at high temperature ($T_s = 2.8$).

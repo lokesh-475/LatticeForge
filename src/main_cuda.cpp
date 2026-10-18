@@ -35,8 +35,57 @@ int main(int argc, char** argv) {
     config.seed = 42;
 
     int total_mcs = 50;
-    if (argc > 1) {
-        total_mcs = std::atoi(argv[1]);
+    std::string custom_csv_path = "";
+    std::string custom_bin_path = "";
+    std::string custom_radial_path = "";
+    std::string custom_centroids_path = "";
+
+    // Parse command line arguments (supports both positional and flagged options)
+    int pos_idx = 0;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-h" || arg == "--help") {
+            std::cout << "Usage: lattice_forge_cuda.exe [OPTIONS] [STEPS] [TEMP]\n"
+                      << "Options:\n"
+                      << "  -s, --steps <N>       Total Monte Carlo steps (default: 50)\n"
+                      << "  -t, --temp <T>        Reduced sintering temperature Ts (default: 0.4)\n"
+                      << "  -o, --output <file>   Path to output energy log CSV\n"
+                      << "  -b, --bin <file>      Path to output binary snapshot\n"
+                      << "      --radial <file>   Path to output radial profile CSV\n"
+                      << "      --centroids <file>Path to output grain centroids CSV\n"
+                      << "      --size <L>        Grid size L (default: 128)\n"
+                      << "      --seed <S>        RNG seed (default: 42)\n"
+                      << "  -h, --help            Show this help message\n";
+            return 0;
+        } else if ((arg == "-s" || arg == "--steps") && i + 1 < argc) {
+            total_mcs = std::atoi(argv[++i]);
+        } else if ((arg == "-t" || arg == "--temp") && i + 1 < argc) {
+            config.temp = std::atof(argv[++i]);
+        } else if ((arg == "-o" || arg == "--output" || arg == "--out-csv") && i + 1 < argc) {
+            custom_csv_path = argv[++i];
+        } else if ((arg == "-b" || arg == "--bin" || arg == "--out-bin") && i + 1 < argc) {
+            custom_bin_path = argv[++i];
+        } else if (arg == "--radial" && i + 1 < argc) {
+            custom_radial_path = argv[++i];
+        } else if (arg == "--centroids" && i + 1 < argc) {
+            custom_centroids_path = argv[++i];
+        } else if (arg == "--size" && i + 1 < argc) {
+            config.size = std::atoi(argv[++i]);
+        } else if (arg == "--seed" && i + 1 < argc) {
+            config.seed = std::atoi(argv[++i]);
+        } else if (arg[0] != '-') {
+            // Positional argument: [steps] [temp] [csv_path] [bin_path]
+            if (pos_idx == 0) {
+                total_mcs = std::atoi(arg.c_str());
+            } else if (pos_idx == 1) {
+                config.temp = std::atof(arg.c_str());
+            } else if (pos_idx == 2) {
+                custom_csv_path = arg;
+            } else if (pos_idx == 3) {
+                custom_bin_path = arg;
+            }
+            pos_idx++;
+        }
     }
 
     int L = config.size;
@@ -77,7 +126,13 @@ int main(int argc, char** argv) {
     potts::cuda::CudaManager::init_curand_states(d_states, L, config.seed);
 
     // Prepare CSV output
-    std::string csv_path = resolve_output_path();
+    std::string csv_path = custom_csv_path.empty() ? resolve_output_path() : custom_csv_path;
+    {
+        std::filesystem::path p_csv(csv_path);
+        if (p_csv.has_parent_path()) {
+            std::filesystem::create_directories(p_csv.parent_path());
+        }
+    }
     std::ofstream csv_file(csv_path);
     if (!csv_file.is_open()) {
         std::cerr << "Failed to open " << csv_path << " for writing!\n";
@@ -164,7 +219,7 @@ int main(int argc, char** argv) {
     cudaMemcpy(grid.get_elements_ptr(), d_elements, total_sites * sizeof(uint8_t), cudaMemcpyDeviceToHost);
 
     // High-throughput raw uncompressed binary snapshot dump
-    std::string snapshot_path = potts::resolve_output_file("lattice_state.bin");
+    std::string snapshot_path = custom_bin_path.empty() ? potts::resolve_output_file("lattice_state.bin") : custom_bin_path;
     auto io_res = potts::dump_lattice_binary(snapshot_path, grid, total_mcs, config);
     if (io_res.success) {
         std::cout << "Dumped binary snapshot : " << snapshot_path << " (" 
@@ -175,8 +230,8 @@ int main(int argc, char** argv) {
     }
 
     // Compute grain centroids, radial concentration profile, and shell thickness
-    std::string radial_path = potts::resolve_output_file("radial_profile.csv");
-    std::string centroids_path = potts::resolve_output_file("grain_centroids.csv");
+    std::string radial_path = custom_radial_path.empty() ? potts::resolve_output_file("radial_profile.csv") : custom_radial_path;
+    std::string centroids_path = custom_centroids_path.empty() ? potts::resolve_output_file("grain_centroids.csv") : custom_centroids_path;
     potts::RadialProfileResult radial_res = potts::compute_radial_profile(grid, 0.5, 10);
     potts::export_radial_profile_csv(radial_res, radial_path, centroids_path);
 
