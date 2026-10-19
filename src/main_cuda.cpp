@@ -49,6 +49,7 @@ int main(int argc, char** argv) {
                       << "Options:\n"
                       << "  -s, --steps <N>       Total Monte Carlo steps (default: 50)\n"
                       << "  -t, --temp <T>        Reduced sintering temperature Ts (default: 0.4)\n"
+                      << "  -H, --hseg <H>        Segregation strength Hseg (default: 1.5)\n"
                       << "  -o, --output <file>   Path to output energy log CSV\n"
                       << "  -b, --bin <file>      Path to output binary snapshot\n"
                       << "      --radial <file>   Path to output radial profile CSV\n"
@@ -61,6 +62,8 @@ int main(int argc, char** argv) {
             total_mcs = std::atoi(argv[++i]);
         } else if ((arg == "-t" || arg == "--temp") && i + 1 < argc) {
             config.temp = std::atof(argv[++i]);
+        } else if ((arg == "-H" || arg == "--hseg" || arg == "--h_seg") && i + 1 < argc) {
+            config.h_seg = std::atof(argv[++i]);
         } else if ((arg == "-o" || arg == "--output" || arg == "--out-csv") && i + 1 < argc) {
             custom_csv_path = argv[++i];
         } else if ((arg == "-b" || arg == "--bin" || arg == "--out-bin") && i + 1 < argc) {
