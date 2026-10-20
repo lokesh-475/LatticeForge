@@ -1,0 +1,11 @@
+@echo off
+cd /d "%~dp0"
+call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsall.bat" x64 -vcvars_ver=14.44.35207
+
+rmdir /s /q build
+mkdir build
+cd build
+
+cmake -G "NMake Makefiles" ..
+nmake
+ctest --output-on-failure

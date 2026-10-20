@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LATTICEFORGE // High-Performance Sintering & Solute Segregation Workstation</title>
+  <meta name="description" content="Research-grade GPU-accelerated Potts Monte Carlo and solute segregation workbench for Nd-Ce-Fe-B magnetic microstructures.">
+  <link rel="stylesheet" href="/static/css/main.css">
+  <script src="/static/js/chart.umd.js"></script>
+  <script>if (typeof Chart === 'undefined') { document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js"><\/script>'); }</script>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- ── Sidebar Controls ── -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">LATTICEFORGE // SIM CONTROL</div>
+
+      <div class="param-group">
+        <div class="param-label">
+          <span>Engine Core</span>
+        </div>
+        <div id="engine-status">
+          <span class="status-dot online"></span>DETECTING...
+        </div>
+      </div>
+
+      <div class="param-section">
+        <div class="param-section-title">Lattice Geometry</div>
+        <div class="param-group">
+          <div class="param-label">
+            <span>Grid Dimension L</span>
+            <span class="param-value-display">2D SQUARE</span>
+          </div>
+          <select id="param-size">
+            <option value="64">64 × 64 Sites (4K)</option>
+            <option value="128" selected>128 × 128 Sites (16K)</option>
+            <option value="256">256 × 256 Sites (65K)</option>
+            <option value="512">512 × 512 Sites (262K)</option>
+            <option value="1024">1024 × 1024 Sites (1.05M)</option>
+            <option value="2048">2048 × 2048 Sites (4.19M)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="param-section">
+        <div class="param-section-title">Thermodynamic Physics</div>
+        
+        <div class="param-group">
+          <div class="param-label">
+            <span>Reduced Temp (k_B T / J_gb)</span>
+            <span id="param-temp-value" class="param-value-display">0.40</span>
+          </div>
+          <input type="range" id="param-temp" min="0.10" max="3.00" step="0.05" value="0.40">
+          <div id="temp-regime" class="regime-tag segregation">SEGREGATION / CORE-SHELL</div>
+        </div>
+
+        <div class="param-group">
+          <div class="param-label">
+            <span>Ce Solute Fraction (c_0)</span>
+            <span id="param-ce-value" class="param-value-display">0.10</span>
+          </div>
+          <input type="range" id="param-ce" min="0.01" max="0.30" step="0.01" value="0.10">
+        </div>
+
+        <div class="param-group">
+          <div class="param-label">
+            <span>GB Segregation (H_seg)</span>
+            <span id="param-hseg-value" class="param-value-display">2.5</span>
+          </div>
+          <input type="range" id="param-hseg" min="0.0" max="5.0" step="0.1" value="2.5">
+        </div>
+      </div>
+
+      <div class="param-section">
+        <div class="param-section-title">Execution Controls</div>
+        
+        <div class="param-group">
+          <div class="param-label">
+            <span>Simulation Steps (MCS)</span>
+            <input type="number" id="param-mcs-input" min="10" max="10000" step="10" value="100" style="width: 75px; background: var(--bg); border: 1px solid var(--border); color: var(--accent); font-family: var(--font-mono); font-size: 0.72rem; font-weight: 800; text-align: right; padding: 2px 6px; border-radius: var(--radius); outline: none;">
+          </div>
+          <input type="range" id="param-mcs" min="10" max="10000" step="10" value="100">
+          <span id="param-mcs-value" style="display: none;">100</span>
+          <div class="preset-chips">
+            <button type="button" class="btn-preset" data-mcs="100">100</button>
+            <button type="button" class="btn-preset" data-mcs="500">500</button>
+            <button type="button" class="btn-preset" data-mcs="1000">1K</button>
+            <button type="button" class="btn-preset" data-mcs="2500">2.5K</button>
+            <button type="button" class="btn-preset" data-mcs="5000">5K</button>
+            <button type="button" class="btn-preset" data-mcs="10000">10K</button>
+          </div>
+        </div>
+
+        <div class="param-group">
+          <div class="param-label">
+            <span>RNG Seed</span>
+          </div>
+          <input type="number" id="param-seed" value="42" min="1" step="1">
+        </div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <button id="btn-execute" class="btn-execute">
+        <span id="btn-execute-text">EXECUTE SIMULATION</span>
+      </button>
+    </aside>
+
+    <!-- ── Main Workstation Content ── -->
+    <main class="main-content">
+      <!-- Header -->
+      <header class="header-bar">
+        <div>
+          <div class="header-title">
+            LATTICEFORGE // RESEARCH WORKSTATION
+            <span class="badge badge-accent">CUDA v1.2</span>
+          </div>
+          <div class="header-subtitle">
+            Autonomous 2D/3D Potts Monte Carlo + Solute Segregation Engine for Nd-Ce-Fe-B Sintered Microstructures
+          </div>
+        </div>
+        <div>
+          <span class="badge badge-muted">COMPUTE PIPELINE: NATIVE GPU/C++</span>
+        </div>
+      </header>
+
+      <!-- Progress bar -->
+      <div id="progress-wrap" class="progress-wrap" style="display: none;">
+        <div class="progress-bar-bg">
+          <div id="progress-fill" class="progress-bar-fill"></div>
+        </div>
+        <div id="progress-text" class="progress-text">READY</div>
+      </div>
+
+      <!-- Live Telemetry Strip -->
+      <section class="telemetry-strip">
+        <div class="telem-card">
+          <div class="telem-label">ΔH HAMILTONIAN</div>
+          <div id="telem-energy-val" class="telem-value">—</div>
+          <div id="telem-energy-sub" class="telem-sub">Relaxation trajectory</div>
+        </div>
+        <div class="telem-card">
+          <div class="telem-label">GB ENRICHMENT</div>
+          <div id="telem-enrich-val" class="telem-value">—</div>
+          <div id="telem-enrich-sub" class="telem-sub">C_boundary / C_bulk</div>
+        </div>
+        <div class="telem-card">
+          <div class="telem-label">MASS INVARIANT ΔN</div>
+          <div id="telem-invar-val" class="telem-value">—</div>
+          <div id="telem-invar-sub" class="telem-sub">Kawasaki conservation</div>
+        </div>
+        <div class="telem-card">
+          <div class="telem-label">UNIQUE GRAINS</div>
+          <div id="telem-grains-val" class="telem-value">—</div>
+          <div id="telem-grains-sub" class="telem-sub">Active crystallographic states</div>
+        </div>
+        <div class="telem-card">
+          <div class="telem-label">COMPUTE BACKEND</div>
+          <div id="telem-time-val" class="telem-value">NATIVE</div>
+          <div id="telem-time-sub" class="telem-sub">C++ / CUDA Engine</div>
+        </div>
+      </section>
+
+      <!-- Tab Navigation -->
+      <nav class="tab-nav">
+        <button class="tab-btn active" data-tab="overview">WORKSTATION OVERVIEW</button>
+        <button class="tab-btn" data-tab="microstructure">MICROSTRUCTURE [2D]</button>
+        <button class="tab-btn" data-tab="kinetics">SEGREGATION KINETICS</button>
+        <button class="tab-btn" data-tab="radial">RADIAL PROFILES</button>
+        <button class="tab-btn" data-tab="binary">BINARY SNAPSHOT &amp; EXPORTS</button>
+        <button class="tab-btn" data-tab="console">LIVE ENGINE CONSOLE</button>
+      </nav>
+
+      <!-- Panel: Workstation Overview (Active Default) -->
+      <div id="tab-overview" class="tab-panel active">
+        <div class="section-label">LATTICE TOPOLOGY PREVIEW</div>
+        <div id="overview-micro-grid" class="overview-micro-row">
+          <div class="micro-panel">
+            <div class="micro-panel-title">GRAIN ORIENTATIONS</div>
+            <div id="overview-grain-wrap" style="min-height: 180px; display: flex; align-items: center; justify-content: center;">
+              <span class="empty-state">Loading snapshot...</span>
+            </div>
+          </div>
+          <div class="micro-panel">
+            <div class="micro-panel-title">Ce SOLUTE DISTRIBUTION</div>
+            <div id="overview-solute-wrap" style="min-height: 180px; display: flex; align-items: center; justify-content: center;">
+              <span class="empty-state">Loading snapshot...</span>
+            </div>
+          </div>
+          <div class="micro-panel">
+            <div class="micro-panel-title">COMPOSITE PHASE OVERLAY</div>
+            <div id="overview-comp-wrap" style="min-height: 180px; display: flex; align-items: center; justify-content: center;">
+              <span class="empty-state">Loading snapshot...</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-label" style="margin-top: 20px;">REAL-TIME SEGREGATION KINETICS &amp; ENERGY TRAJECTORIES</div>
+        <div class="chart-row">
+          <div class="chart-box">
+            <div class="micro-panel-title">HAMILTONIAN RELAXATION H(t)</div>
+            <div class="chart-container">
+              <canvas id="chart-overview-hamiltonian"></canvas>
+            </div>
+          </div>
+          <div class="chart-box">
+            <div class="micro-panel-title">SOLUTE PARTITIONING: C_BOUNDARY vs C_BULK</div>
+            <div class="chart-container">
+              <canvas id="chart-overview-partition"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="chart-row">
+          <div class="chart-box">
+            <div class="micro-panel-title">GRAIN BOUNDARY ENRICHMENT RATIO</div>
+            <div class="chart-container">
+              <canvas id="chart-overview-enrichment"></canvas>
+            </div>
+          </div>
+          <div class="chart-box">
+            <div class="micro-panel-title">RADIAL Ce PROFILE C(r) WITH ±1σ CONFIDENCE BAND</div>
+            <div class="chart-container">
+              <canvas id="chart-overview-radial"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel: Microstructure Expanded -->
+      <div id="tab-microstructure" class="tab-panel">
+        <div class="section-label">HIGH-RESOLUTION LATTICE TOPOLOGY &amp; SOLUTE CONCENTRATION</div>
+        <div id="micro-grid-content" class="micro-grid">
+          <div class="empty-state" style="grid-column: 1/-1;">
+            NO LATTICE DATA — Click "EXECUTE SIMULATION" or load existing artifacts.
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel: Kinetics Expanded -->
+      <div id="tab-kinetics" class="tab-panel">
+        <div class="section-label">THERMODYNAMIC RELAXATION &amp; GRAIN BOUNDARY PARTITIONING</div>
+        <div class="chart-row">
+          <div class="chart-box">
+            <div class="micro-panel-title">HAMILTONIAN RELAXATION H(t)</div>
+            <div class="chart-container tall">
+              <canvas id="chart-hamiltonian"></canvas>
+            </div>
+          </div>
+          <div class="chart-box">
+            <div class="micro-panel-title">SOLUTE PARTITIONING: C_BOUNDARY vs C_BULK</div>
+            <div class="chart-container tall">
+              <canvas id="chart-partition"></canvas>
+            </div>
+          </div>
+        </div>
+        <div class="chart-box">
+          <div class="micro-panel-title">GRAIN BOUNDARY ENRICHMENT RATIO (C_GB / C_BULK)</div>
+          <div class="chart-container tall">
+            <canvas id="chart-enrichment"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel: Radial Profile -->
+      <div id="tab-radial" class="tab-panel">
+        <div class="section-label">RADIAL SOLUTE DISTRIBUTION C(r) &amp; GRAIN CENTROID ANALYSIS</div>
+        <div class="chart-row">
+          <div class="chart-box">
+            <div class="micro-panel-title">RADIAL Ce PROFILE C(r) WITH ±1σ CONFIDENCE BAND</div>
+            <div class="chart-container tall">
+              <canvas id="chart-radial"></canvas>
+            </div>
+          </div>
+          <div class="chart-box">
+            <div class="micro-panel-title">GRAIN MORPHOLOGY &amp; CENTROIDS</div>
+            <div class="data-table-wrap" style="max-height: 320px; overflow-y: auto;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>GRAIN ID</th>
+                    <th>SITES</th>
+                    <th>R_EFF (lu)</th>
+                    <th>Ce ATOMS</th>
+                    <th>Ce FRACTION</th>
+                  </tr>
+                </thead>
+                <tbody id="centroids-table-body">
+                  <tr>
+                    <td colspan="5" style="text-align: center; color: var(--text-3); padding: 16px;">
+                      No grain centroid data available.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel: Binary Snapshot & Exports -->
+      <div id="tab-binary" class="tab-panel">
+        <div class="section-label">BINARY HEADER METADATA (128-BYTE RESEARCH FORMAT)</div>
+        <div class="header-inspector">
+          <div id="header-block-1" class="header-block">
+            <span class="hb-key">Magic:</span> <span class="hb-val">—</span>
+          </div>
+          <div id="header-block-2" class="header-block">
+            <span class="hb-key">Dimensions:</span> <span class="hb-val">—</span>
+          </div>
+          <div id="header-block-3" class="header-block">
+            <span class="hb-key">Physics:</span> <span class="hb-val">—</span>
+          </div>
+        </div>
+
+        <div class="section-label" style="margin-top: 24px;">EXPORTS &amp; ARTIFACT DOWNLOADS</div>
+        <div id="download-grid" class="download-grid">
+          <div class="empty-state" style="grid-column: 1/-1;">
+            No downloadable artifacts found in outputs directory.
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel: Console -->
+      <div id="tab-console" class="tab-panel">
+        <div class="section-label">CUDA SUBPROCESS REALTIME STDOUT / STDERR STREAM</div>
+        <pre id="console-output" class="console-output">SYSTEM READY. CLICK "EXECUTE SIMULATION" TO COMMENCE COMPUTATION.</pre>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
