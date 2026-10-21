@@ -73,27 +73,47 @@
   let chartEnrichment          = null;
   let chartRadial              = null;
 
-  // ── Tab Navigation ────────────────────────────────────────────────────────
+  // ── Tab Navigation & Chart Resizing ───────────────────────────────────────
+  function resizeAllCharts() {
+    [
+      chartOverviewHamiltonian,
+      chartOverviewPartition,
+      chartOverviewEnrichment,
+      chartOverviewRadial,
+      chartHamiltonian,
+      chartPartition,
+      chartEnrichment,
+      chartRadial,
+    ].forEach((c) => {
+      if (c) {
+        try {
+          c.resize();
+          c.update();
+        } catch (e) {}
+      }
+    });
+  }
+
+  function switchToTab(target) {
+    tabBtns.forEach((b) => b.classList.toggle("active", b.dataset.tab === target));
+    tabPanels.forEach((p) => p.classList.toggle("active", p.id === `tab-${target}`));
+
+    setTimeout(() => {
+      resizeAllCharts();
+      window.dispatchEvent(new Event("resize"));
+    }, 60);
+
+    // Lazy-load or refresh data for the target tab
+    if (target === "overview") loadAllData();
+    else if (target === "kinetics") loadEnergyData();
+    else if (target === "radial") loadRadialData();
+    else if (target === "microstructure") loadLatticeData();
+    else if (target === "binary") loadHeaderData();
+  }
+
   tabBtns.forEach((btn) => {
     btn.addEventListener("click", () => {
-      const target = btn.dataset.tab;
-      tabBtns.forEach((b) => b.classList.remove("active"));
-      tabPanels.forEach((p) => p.classList.remove("active"));
-      btn.classList.add("active");
-      const panel = $(`#tab-${target}`);
-      if (panel) panel.classList.add("active");
-
-      // Notify window resize so Chart.js recalculates canvas layout in newly active tab
-      setTimeout(() => {
-        window.dispatchEvent(new Event("resize"));
-      }, 60);
-
-      // Lazy-load data for the tab
-      if (target === "overview") loadAllData();
-      if (target === "kinetics") loadEnergyData();
-      if (target === "radial") loadRadialData();
-      if (target === "microstructure") loadLatticeData();
-      if (target === "binary") loadHeaderData();
+      switchToTab(btn.dataset.tab);
     });
   });
 
@@ -214,8 +234,12 @@
           if (d.return_code === 0) {
             progressText.textContent = `COMPLETED ${d.total}/${d.total} MCS [${d.elapsed.toFixed(2)}s]`;
             progressFill.style.background = "var(--success)";
-            // Reload all data panels
-            loadAllData();
+            // Reload all data panels and automatically switch to Workstation Overview to display graphs
+            loadAllData().then(() => {
+              setTimeout(() => {
+                switchToTab("overview");
+              }, 700);
+            });
           } else {
             progressText.textContent = `FAILED [EXIT ${d.return_code}]`;
             progressFill.style.background = "var(--error)";
@@ -228,13 +252,8 @@
         resetButton();
       };
 
-      // Switch to console tab
-      tabBtns.forEach((b) => b.classList.remove("active"));
-      tabPanels.forEach((p) => p.classList.remove("active"));
-      const consoleBtn = $('[data-tab="console"]');
-      if (consoleBtn) consoleBtn.classList.add("active");
-      const consolePanel = $("#tab-console");
-      if (consolePanel) consolePanel.classList.add("active");
+      // Switch to live console tab while running
+      switchToTab("console");
 
     } catch (e) {
       consoleOutput.textContent = `NETWORK ERROR: ${e.message}`;
