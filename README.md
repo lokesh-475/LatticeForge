@@ -55,7 +55,7 @@
 
 ## 🔬 Executive Overview
 
-**LatticeForge** is a research-grade, high-throughput computational materials science simulation engine developed in **C++20** and **NVIDIA CUDA**. It models non-equilibrium solid-state sintering and interfacial segregation in Multi-Main-Phase (MMP) permanent magnet systems ($(\text{Nd}_{1-x}\text{Ce}_x)_{2}\text{Fe}_{14}\text{B}$), as described in modern metallurgical literature (*Ma et al., J. Alloys Compd., 2025*).
+**LatticeForge** is a research-grade, high-throughput computational materials science simulation engine developed in **C++20** and **NVIDIA CUDA**. It models non-equilibrium solid-state sintering and interfacial segregation in Multi-Main-Phase (MMP) permanent magnet systems .
 
 ### Computational Highlights:
 - **Potts Monte Carlo Grain Coarsening**: Curvature-driven grain boundary migration with 2-color Red-Black checkerboard decomposition and Philox4_32_10 parallel pseudorandom generation.
@@ -357,16 +357,16 @@ LatticeForge/
 ├── app.py                        # Unified Streamlit & Flask analytics workstation
 ├── CMakeLists.txt                # Root CMake project build configuration (v1.0.0)
 ├── LICENSE                       # MIT License
-└── README.md                     # Project documentation (this file)
+└── README.md                     # Project documentation
 ```
 
 ---
 
 ## 🏷️ Release v1.0.0 Notes
 
-### Version 1.0.0 — Production Release (October 2026)
+### Version 1.0.0 — Release (October 2026)
 - **Engine Core**: Full implementation of 2-color Potts and 4-color Kawasaki CUDA kernels with shared-memory halo staging.
-- **Performance**: Verified **$239.25\times$ sustained acceleration** over single-threaded reference, delivering **$0.814\text{ G-SUPS}$** throughput.
+- **Performance**: Verified **$239.25\times$ sustained acceleration** over single-threaded reference.
 - **Analytics**: Toroidal CCL, grain centroid extraction, and quantitative shell thickness determination ($\delta$ via $C_{50}$).
 - **I/O Engine**: Sub-millisecond 128-byte binary format streaming states at $>600\text{ MB/s}$.
 - **Workstation UI**: Dual-mode Streamlit interactive dashboard with live parameter steering, heatmaps, and metric cards.
@@ -384,7 +384,7 @@ If you utilize LatticeForge in academic research or industrial simulations, plea
 
 ```bibtex
 @software{latticeforge2026,
-  author = {Lokesh Kag and Contributors},
+  author = {Lokesh},
   title = {LatticeForge: High-Throughput 2D Discrete Lattice Engine for Multi-Phase Sintering and Core-Shell Kinetics},
   version = {1.0.0},
   year = {2026},
